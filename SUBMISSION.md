@@ -1,7 +1,7 @@
 # Submission — DevOps Engineer Assignment
 
 **Candidate name:** Ujjwal Bhardwaj
-**Email:** *(your email here)*
+**Email:** ujjwalbhardwaj340@gmail.com
 **Date submitted:** 2026-05-24
 **Hours spent (approximate):** 8
 
