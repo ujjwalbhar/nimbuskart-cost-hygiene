@@ -1,0 +1,53 @@
+{
+  "scan_timestamp": "2026-05-24T04:00:00Z",
+  "account_id": "000000000000",
+  "region": "us-east-1",
+  "summary": {
+    "total_orphans": 3,
+    "estimated_monthly_waste_usd": 12.40
+  },
+  "findings": [
+    {
+      "resource_id": "vol-abc12345",
+      "resource_type": "ebs_volume",
+      "reason": "unattached",
+      "age_days": 21,
+      "estimated_monthly_cost_usd": 0.80,
+      "tags": {
+        "Project": "nimbuskart",
+        "Environment": "staging",
+        "Owner": "devops"
+      },
+      "suggested_action": "delete",
+      "safe_to_auto_delete": true
+    },
+    {
+      "resource_id": "i-0abc12345678",
+      "resource_type": "ec2_instance",
+      "reason": "stopped_over_14_days",
+      "age_days": 30,
+      "estimated_monthly_cost_usd": 2.00,
+      "tags": {
+        "Project": "nimbuskart",
+        "Environment": "staging",
+        "Owner": "devops"
+      },
+      "suggested_action": "review_and_terminate",
+      "safe_to_auto_delete": false
+    },
+    {
+      "resource_id": "eipalloc-0abc123",
+      "resource_type": "elastic_ip",
+      "reason": "unassociated",
+      "age_days": 0,
+      "estimated_monthly_cost_usd": 3.60,
+      "tags": {
+        "Project": null,
+        "Environment": null,
+        "Owner": null
+      },
+      "suggested_action": "release",
+      "safe_to_auto_delete": true
+    }
+  ]
+}
