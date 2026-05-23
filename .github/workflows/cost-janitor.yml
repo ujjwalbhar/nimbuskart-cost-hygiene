@@ -1,0 +1,137 @@
+name: Cost Janitor
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  cost-janitor:
+    name: Run Cost Janitor
+    runs-on: ubuntu-latest
+
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: ec2,s3,iam,sts
+          DEFAULT_REGION: us-east-1
+        options: >-
+          --health-cmd "curl -s http://localhost:4566/_localstack/health | grep running"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install -r janitor/requirements.txt
+
+      - name: Wait for LocalStack to be ready
+        run: |
+          echo "Waiting for LocalStack..."
+          for i in $(seq 1 20); do
+            if curl -s http://localhost:4566/_localstack/health | grep -q 'running'; then
+              echo "LocalStack is ready!"
+              break
+            fi
+            echo "Attempt $i: not ready yet, waiting 5s..."
+            sleep 5
+          done
+
+      - name: Terraform Init
+        working-directory: terraform
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+        run: terraform init
+
+      - name: Terraform Validate
+        working-directory: terraform
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+        run: terraform validate
+
+      - name: Terraform Apply
+        working-directory: terraform
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+        run: terraform apply -auto-approve
+
+      - name: Run Cost Janitor (dry-run)
+        id: janitor
+        working-directory: janitor
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_ENDPOINT_URL: http://localhost:4566
+        run: |
+          python janitor.py --dry-run --output report.json --output-md report.md || true
+          echo "janitor_exit=$?" >> $GITHUB_OUTPUT
+
+      - name: Upload report artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cost-janitor-report
+          path: |
+            janitor/report.json
+            janitor/report.md
+
+      - name: Post PR comment if orphans found
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = 'janitor/report.md';
+            if (!fs.existsSync(reportPath)) {
+              console.log('No report.md found, skipping comment.');
+              return;
+            }
+            const report = fs.readFileSync(reportPath, 'utf8');
+            const jsonPath = 'janitor/report.json';
+            const json = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+            if (json.summary.total_orphans === 0) {
+              console.log('No orphans found, skipping PR comment.');
+              return;
+            }
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🧹 Cost Janitor Report\n\n${report}`
+            });
+
+      - name: Fail if orphans found
+        working-directory: janitor
+        run: |
+          python -c "
+import json, sys
+with open('report.json') as f:
+    r = json.load(f)
+if r['summary']['total_orphans'] > 0:
+    print(f'FAIL: {r[\"summary\"][\"total_orphans\"]} orphans found - estimated waste: ${r[\"summary\"][\"estimated_monthly_waste_usd\"]:.2f}/mo')
+    sys.exit(1)
+print('OK: No orphans found.')
+"
