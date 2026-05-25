@@ -45,8 +45,6 @@ def parse_args():
         description="Cost Janitor - find and optionally remove orphaned AWS resources"
     )
 
-    # Use a simple boolean flag approach to avoid argparse mutually-exclusive
-    # group quirks when --dry-run has default=True.
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -224,7 +222,7 @@ def find_stopped_instances(ec2, delete, stopped_days_threshold):
 
     Uses StateTransitionReason to extract the actual stop time when available
     (e.g. 'User initiated (2026-01-10 08:00:00 GMT)'). Falls back to LaunchTime
-    as a conservative proxy if the stop time cannot be parsed — this is a known
+    as a conservative proxy if the stop time cannot be parsed -- this is a known
     limitation in LocalStack which does not populate StateTransitionReason.
     """
     findings = []
@@ -259,7 +257,6 @@ def find_stopped_instances(ec2, delete, stopped_days_threshold):
                     "Owner": tag_dict.get("Owner"),
                 },
                 "suggested_action": "review_and_terminate",
-                # EC2 termination is always risky; require human confirmation
                 "safe_to_auto_delete": False,
             })
 
@@ -280,7 +277,7 @@ def find_unused_eips(ec2, delete):
 
     for addr in response.get("Addresses", []):
         if addr.get("AssociationId"):
-            continue  # Still associated — skip
+            continue  # Still associated -- skip
 
         alloc_id = addr.get("AllocationId", addr.get("PublicIp", "unknown"))
         public_ip = addr.get("PublicIp", "")
@@ -292,7 +289,7 @@ def find_unused_eips(ec2, delete):
             "resource_id": alloc_id,
             "resource_type": "elastic_ip",
             "reason": "unassociated",
-            "age_days": 0,  # EIPs do not expose creation time via standard API
+            "age_days": 0,
             "estimated_monthly_cost_usd": ELASTIC_IP_IDLE_COST_PER_MONTH,
             "tags": {
                 "Project": tag_dict.get("Project"),
@@ -320,7 +317,6 @@ def find_stale_snapshots(ec2, delete):
     """
     findings = []
 
-    # Collect all existing volume IDs for cross-reference
     vol_response = ec2.describe_volumes()
     existing_volumes = {v["VolumeId"] for v in vol_response.get("Volumes", [])}
 
@@ -336,7 +332,6 @@ def find_stale_snapshots(ec2, delete):
         source_vol = snap.get("VolumeId", "")
         cost = round(size_gb * EBS_SNAPSHOT_COST_PER_GB_MONTH, 2)
 
-        # Only flag if old enough AND source volume is gone
         if age < STALE_SNAPSHOT_DAYS:
             continue
         if source_vol and source_vol in existing_volumes:
@@ -466,7 +461,7 @@ def build_report(findings, account_id, region):
 
 def write_markdown(report, output_path):
     lines = [
-        "# 🧹 Cost Janitor Report",
+        "# Cost Janitor Report",
         "",
         f"**Scan time:** {report['scan_timestamp']}",
         f"**Account:** {report['account_id']}",
@@ -489,15 +484,15 @@ def write_markdown(report, output_path):
             "|-------------|------|--------|------------|--------------|---------------------|",
         ]
         for f in report["findings"]:
-            safe = "✅ Yes" if f["safe_to_auto_delete"] else "⚠️ No"
+            safe = "Yes" if f["safe_to_auto_delete"] else "No"
             lines.append(
                 f"| {f['resource_id']} | {f['resource_type']} | {f['reason']} "
                 f"| {f['age_days']} | ${f['estimated_monthly_cost_usd']:.2f} | {safe} |"
             )
     else:
-        lines.append("> ✅ No orphaned resources found. Your cloud is clean!")
+        lines.append("> No orphaned resources found. Your cloud is clean!")
 
-    with open(output_path, "w") as fh:
+    with open(output_path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
 
 
@@ -539,8 +534,6 @@ def main():
     all_findings.extend(find_missing_tags(ec2))
 
     # Deduplicate: a resource may appear in both orphan and missing-tag scans.
-    # Key on (resource_id, reason) so the same resource flagged for two
-    # different reasons (e.g. unattached AND missing tags) still appears twice.
     seen = set()
     unique_findings = []
     for f in all_findings:
@@ -551,7 +544,7 @@ def main():
 
     report = build_report(unique_findings, account_id, args.region)
 
-    with open(args.output, "w") as fh:
+    with open(args.output, "w", encoding="utf-8") as fh:
         json.dump(report, fh, indent=2)
     print(f"\n[INFO] JSON report  -> {args.output}")
 
@@ -562,7 +555,6 @@ def main():
     waste = report["summary"]["estimated_monthly_waste_usd"]
     print(f"\n[RESULT] {n} orphan(s) found | Estimated waste: ${waste:.2f}/mo")
 
-    # In dry-run mode: non-zero exit so CI fails and alerts the team.
     if args.dry_run and n > 0:
         print("[WARN] Exiting with code 1 (orphans found in dry-run mode).")
         sys.exit(1)
